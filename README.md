@@ -19,7 +19,7 @@
 
    (1) wandb 사이트에 직접 들어가 이름 바꾸기
    
-   (2) Console 창에서 시작할 때 python train.py 뒤에 `--name {지정할 이름}` 으로 argument 주면 자동으로 { } 사이에 있는 이름으로 Project명 지정됨(default ; exp)
+   (2) Console 창에서 시작할 때 `python train.py` 뒤에 `--name {지정할 이름}` 으로 argument 주면 자동으로 { } 사이에 있는 이름으로 Project명 지정됨(default ; exp)
 
 ### Dependencies
 - torch==1.7.1
