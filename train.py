@@ -156,6 +156,7 @@ def train(data_dir, model_dir, args):
 
     # -- logging
     wandb.init(project="PProject", entity="violetto", name = args.name)
+    # TODO : project명과 entity를 바꾸기!
 
     wandb.config = {
         "learning_rate" : args.lr,
