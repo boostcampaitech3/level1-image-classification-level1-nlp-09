@@ -6,11 +6,13 @@
 1. TODO 검색해서 Default값 수정해야 할 부분 있는지 확인해보기 (특히 Model이나 Epochs 등은 무조건 수정!)
 2. 빠뜨린 TODO가 있을 수도 있기 때문에 자신의 코드랑 Line by Line까지는 아니더라도 개인적으로 다르게 수정한 부분은 주의해서 보기
 3. wandb 찍는법
+
   (1) Console -> wandb login
   
   (2) Wandb에 로그인 하고 Project를 만들면, Proejct 명을 만들어야 할 것. 그 때 Project명을 project에, Entity는 자신의 이름으로 설정하면 됨
   
   ![image](https://user-images.githubusercontent.com/72785706/156280567-9767db1a-30fc-47a9-826c-630f4e859477.png)
+  
     * 나는 violetto가 entity, PProject가 Project명으로 지정했기 때문에 init에 그렇게 입력한 것
 
 ### Dependencies
