@@ -3,10 +3,13 @@ import random
 from collections import defaultdict
 from enum import Enum
 from typing import Tuple, List
+import wandb
+import cv2
 
 import numpy as np
 import torch
 from PIL import Image
+import torchvision.transforms as transforms
 from torch.utils.data import Dataset, Subset, random_split
 from torchvision.transforms import Resize, ToTensor, Normalize, Compose, CenterCrop, ColorJitter
 
@@ -15,49 +18,35 @@ IMG_EXTENSIONS = [
     ".PNG", ".ppm", ".PPM", ".bmp", ".BMP",
 ]
 
-
 def is_image_file(filename):
     return any(filename.endswith(extension) for extension in IMG_EXTENSIONS)
 
 
-class BaseAugmentation:
-    def __init__(self, resize, mean, std, **args):
+class DatasetFromSubset(Dataset):
+    # TODO
+    # train data에 먹여 줄 Data Transform
+    def __init__(self, subset, transform=None):
+        self.subset = subset
         self.transform = Compose([
-            Resize(resize, Image.BILINEAR),
-            ToTensor(),
-            Normalize(mean=mean, std=std),
+           transforms.RandomGrayscale(p=0.3),
+           transforms.RandomHorizontalFlip(p=0.4),
+           transforms.RandomRotation(degrees=10),
         ])
 
-    def __call__(self, image):
-        return self.transform(image)
+    def __getitem__(self, index):
+        x, y = self.subset[index]
+        x = self.transform(x)
+        return x, y
 
-
-class AddGaussianNoise(object):
-    """
-        transform 에 없는 기능들은 이런식으로 __init__, __call__, __repr__ 부분을
-        직접 구현하여 사용할 수 있습니다.
-    """
-
-    def __init__(self, mean=0., std=1.):
-        self.std = std
-        self.mean = mean
-
-    def __call__(self, tensor):
-        return tensor + torch.randn(tensor.size()) * self.std + self.mean
-
-    def __repr__(self):
-        return self.__class__.__name__ + '(mean={0}, std={1})'.format(self.mean, self.std)
-
+    def __len__(self):
+        return len(self.subset)
 
 class CustomAugmentation:
     def __init__(self, resize, mean, std, **args):
         self.transform = Compose([
-            CenterCrop((320, 256)),
             Resize(resize, Image.BILINEAR),
-            ColorJitter(0.1, 0.1, 0.1, 0.1),
             ToTensor(),
             Normalize(mean=mean, std=std),
-            AddGaussianNoise()
         ])
 
     def __call__(self, image):
@@ -68,7 +57,6 @@ class MaskLabels(int, Enum):
     MASK = 0
     INCORRECT = 1
     NORMAL = 2
-
 
 class GenderLabels(int, Enum):
     MALE = 0
@@ -103,7 +91,6 @@ class AgeLabels(int, Enum):
             return cls.MIDDLE
         else:
             return cls.OLD
-
 
 class MaskBaseDataset(Dataset):
     num_classes = 3 * 2 * 3
@@ -200,7 +187,8 @@ class MaskBaseDataset(Dataset):
 
     def read_image(self, index):
         image_path = self.image_paths[index]
-        return Image.open(image_path)
+        im = Image.open(image_path)
+        return im
 
     @staticmethod
     def encode_multi_class(mask_label, gender_label, age_label) -> int:
