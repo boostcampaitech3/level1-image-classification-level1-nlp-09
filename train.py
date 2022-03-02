@@ -26,6 +26,9 @@ from loss import create_criterion
 
 import warnings
 
+np.set_printoptions(linewidth=np.inf)
+from sklearn.metrics import f1_score, confusion_matrix, classification_report
+
 def seed_everything(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
@@ -176,6 +179,10 @@ def train(data_dir, model_dir, args):
         model.train()
         loss_value = 0
         matches = 0
+
+        # f1 score for training
+        pred_all = []
+        true_all = []
         for idx, train_batch in enumerate(train_loader):
             inputs, labels = train_batch
             inputs = inputs.to(device)
@@ -192,16 +199,29 @@ def train(data_dir, model_dir, args):
 
             loss_value += loss.item()
             matches += (preds == labels).sum().item()
+
+            pred_all.extend(preds.cpu().numpy().tolist())
+            true_all.extend(labels.cpu().numpy().tolist())
+
             if (idx + 1) % args.log_interval == 0:
                 train_loss = loss_value / args.log_interval
                 train_acc = matches / args.batch_size / args.log_interval
                 current_lr = get_lr(optimizer)
+
+                f1_result_mac = f1_score(true_all, pred_all, average='macro')
+                # f1_result_mic = f1_score(true_all, pred_all, average='micro')
+                # f1_result_w = f1_score(true_all, pred_all, average='weighted')
+
                 print(
                     f"Epoch[{epoch}/{args.epochs}]({idx + 1}/{len(train_loader)}) || "
-                    f"training loss {train_loss:4.4} || training accuracy {train_acc:4.2%} || lr {current_lr}"
+                    f"training loss {train_loss:4.4} || training accuracy {train_acc:4.2%} || "
+                    f"training f1 score {f1_result_mac:4.4%}"
+                    f"lr {current_lr}"
                 )
 
-                wandb.log({"Train/loss" : train_loss, "Train/accuracy" : train_acc})
+                wandb.log({"Train/loss" : train_loss,
+                           "Train/accuracy" : train_acc,
+                           "Train/f1": f1_result_mac})
                 loss_value = 0
                 matches = 0
 
@@ -214,6 +234,11 @@ def train(data_dir, model_dir, args):
             val_loss_items = []
             val_acc_items = []
             figure = None
+
+            # f1 score for validation
+            pred_all = []
+            true_all = []
+
             for val_batch in val_loader:
                 inputs, labels = val_batch
                 inputs = inputs.to(device)
@@ -227,6 +252,9 @@ def train(data_dir, model_dir, args):
                 val_loss_items.append(loss_item)
                 val_acc_items.append(acc_item)
 
+                pred_all.extend(preds.cpu().numpy().tolist())
+                true_all.extend(labels.cpu().numpy().tolist())
+
                 if figure is None:
                     inputs_np = torch.clone(inputs).detach().cpu().permute(0, 2, 3, 1).numpy()
                     inputs_np = dataset_module.denormalize_image(inputs_np, dataset.mean, dataset.std)
@@ -237,16 +265,23 @@ def train(data_dir, model_dir, args):
             val_loss = np.sum(val_loss_items) / len(val_loader)
             val_acc = np.sum(val_acc_items) / len(val_set)
             best_val_loss = min(best_val_loss, val_loss)
+
+            f1_result_mac = f1_score(true_all, pred_all, average='macro')
+
+            # 여기서 기준을 val_acc 말고 f1_result_mac으로 할거면 그거에 따라서 수정
             if val_acc > best_val_acc:
                 print(f"New best model for val accuracy : {val_acc:4.2%}! saving the best model..")
                 torch.save(model.module.state_dict(), f"{save_dir}/best.pth")
                 best_val_acc = val_acc
             torch.save(model.module.state_dict(), f"{save_dir}/last.pth")
             print(
-                f"[Val] acc : {val_acc:4.2%}, loss: {val_loss:4.2} || "
+                f"[Val] acc : {val_acc:4.2%}, f1 score:{f1_result_mac:4.4%}, loss: {val_loss:4.2} || "
                 f"best acc : {best_val_acc:4.2%}, best loss: {best_val_loss:4.2}"
             )
-            wandb.log({"Val/loss":val_loss, "Val/accuracy":val_acc, "results":figure})
+            wandb.log({"Val/loss":val_loss,
+                       "Val/accuracy":val_acc,
+                       "Val/f1":f1_result_mac,
+                     "results":figure})
             print()
 
 if __name__ == '__main__':

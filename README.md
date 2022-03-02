@@ -1,6 +1,48 @@
 # pstage_01_image_classification
-
+> Last updated by sykim 0302 12:50pm
 ## Getting Started  
+### F1 score
+1. sklearn 없으면 'pip install -U scikit-learn' 으로 설치
+2. train.py 파일에 training evalutation 부분에 넣고, wandb로 트래킹 되게 했음.
+3. best model file을 저장하기 위해(또는 early stopping) train.py에서 best_val_acc로 판단하는데, 그걸 f1_score로 바꾸던지 알아서 취사선택
+```python
+   # 여기서 기준을 val_acc 말고 f1_result_mac으로 할거면 그거에 따라서 수정
+            if val_acc > best_val_acc:
+                print(f"New best model for val accuracy : {val_acc:4.2%}! saving the best model..")
+                torch.save(model.module.state_dict(), f"{save_dir}/best.pth")
+                best_val_acc = val_acc
+            torch.save(model.module.state_dict(), f"{save_dir}/last.pth")
+```
+### Model
+1. model.py 에 `ModifiedEfficientB0` 넣어뒀음. import해서 사용
+2. timm 라이브러리 설치 및 사용가능한 모델 찾아보기 -> https://rwightman.github.io/pytorch-image-models/
+
+### 사용한 Transformation 및 configuration
+* Transformation : efficientnet-b0 기준
+```python
+    train_transform = transforms.Compose([transforms.Resize(256),
+                                          transforms.CenterCrop(224),
+                                          transforms.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5, hue=0.5),
+                                          transforms.RandomHorizontalFlip(),
+                                          transforms.ToTensor()])
+  
+    val_transform = transforms.Compose([transforms.Resize(256),
+                                          transforms.CenterCrop(224),
+                                        transforms.ToTensor()])
+```
+* batch size: 64
+* optimizer: adam, lr: qe-4, lr scheduling: 매 에폭별 0.995씩 떨어뜨 
+```python
+    opt = optim.Adam(model.parameters(), lr=args.lr)
+    scheduler = optim.lr_scheduler.LambdaLR(optimizer=opt,
+                                            lr_lambda=lambda epoch: 0.995 ** epoch,
+                                            last_epoch=-1,
+                                            verbose=False)
+```
+* 스케줄러는 위와 같이 선언하고 `scheduler.step()` 해야하고, 본 베이스라인 코드의 line 228 에 구현돼있음. 스케줄러 종류만 바꿔보면서 하면 될듯
+
+
+
 
 ### 주의해서 볼 것
 1. TODO 검색해서 Default값 수정해야 할 부분 있는지 확인해보기 (특히 Model이나 Epochs 등은 무조건 수정!)

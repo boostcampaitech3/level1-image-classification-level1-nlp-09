@@ -3,6 +3,28 @@ import torch.nn.functional as F
 import torchvision.models as M
 import torch
 
+# add
+# pip install timm
+# timm으로 다른 것들도 써볼 수 잇음
+class ModifiedEfficientB0(nn.Module):
+    def __init__(self,num_classes=18):
+        super(ModifiedEfficientB0, self).__init__()
+        import timm
+        self.efficient = timm.create_model('efficientnet_b0',pretrained=True)
+        num_ftrs = 1280
+        self.efficient.classifier = nn.Linear(num_ftrs, 512)
+        self.dropout = nn.Dropout(0.7)
+        self.fc2 = nn.Linear(512, num_classes)
+        self.relu = nn.ReLU()
+
+    def forward(self, input):
+        x = self.efficient(input)
+        x = x.view(x.size(0), -1)
+
+        x = self.dropout(self.relu(x))
+        x = self.fc2(x)
+        return x
+
 class BaseModel(nn.Module):
     def __init__(self, num_classes):
         super().__init__()
