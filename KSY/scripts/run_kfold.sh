@@ -10,4 +10,13 @@ python k_fold.py --model modified_efficientnet-b3 \
                             --img_crop 300 \
                             --train_batch_size 64 \
                             --epochs 13 \
-                            --mode train
+                            --mode train \
+                            --lr 5e-5
+
+#python k_fold.py --model modified_efficientnet-b3 \
+#                            --img_resize 332 \
+#                            --img_crop 300 \
+#                            --train_batch_size 64 \
+#                            --epochs 13 \
+#                            --mode train \
+#                            --lr 3e-4

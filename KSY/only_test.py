@@ -20,7 +20,6 @@ import torchvision.models as models
 from model import ModifiedResnet18
 from model import ModifiedEfficient
 
-
 # from dataset import preprocess_df, MaskDataset, TestDataset, CustomMaskSplitByProfileDataset
 from dataset_fold import preprocess_df, MaskDataset, TestDataset, CustomMaskSplitByProfileDatasetFold
 
@@ -220,7 +219,7 @@ def eval(model, criterion, epoch, early_stopping,
 
 
 def test(model,
-         test_dataloader,args,
+         test_dataloader, args,
          file_name,
          device='cuda',
          ):
@@ -235,10 +234,10 @@ def test(model,
             img = img.to(device)
 
             output = model(img)
-            if args.TTA=='use':
+            if args.TTA == 'use':
                 # 원본 이미지를 예측
                 pred = model(img) / 2
-                pred += model(torch.flip(img, dims=(-1,))) / 2 # horizontal?
+                pred += model(torch.flip(img, dims=(-1,))) / 2  # horizontal?
             else:
                 _, pred = torch.max(output, 1)
 
@@ -303,7 +302,7 @@ if __name__ == "__main__":
     if args.mode == 'inference':
         """
         Not used
-        
+
         base_dir = '/opt/ml/input/data/'
         test_image_dir = os.path.join(base_dir, 'eval', 'images')
         total_df, new_train_df_info = preprocess_df(base_dir)
@@ -330,7 +329,7 @@ if __name__ == "__main__":
         Fold는 train mode로 다 수행
         """
         total_dataset_fold = CustomMaskSplitByProfileDatasetFold(base_dir, val_ratio=0.2,
-                                                            k_split= args.k_split)
+                                                                 k_split=args.k_split)
         total_dataset_fold.set_transform(train_transform, val_transform)
         train_dataset_fold, val_dataset_fold = total_dataset_fold.split_dataset()
 
@@ -392,9 +391,9 @@ if __name__ == "__main__":
     K-fold done
     """
     oof_pred = None
-    for fold_idx, (train_dataset, val_dataset) in enumerate(zip(train_dataset_fold, val_dataset_fold)):
-        ###### Model ######
-        # model_name ='modified_efficientnet-b3'
+    model_list = list(range(4))
+    model_path_list = os.listdir('/opt/ml/level1-image-classification-level1-nlp-09/KSY/ckpt_split/train/model')
+    for _ in range(len(model_list)):
         model_name = args.model
 
         if model_name == 'regnetz_e8':
@@ -487,104 +486,12 @@ if __name__ == "__main__":
         else:
             print('설정한 모델이 없는디용?')
             raise NotImplementedError
+        for model_path in range(model_path_list):
+            ckpt_model = torch.load(model_path)
+            model.state_dict(ckpt_model['model'])
+            fold_pred = test(model, test_loader, args,
+                                     file_name=f'./results_split/{args.mode}/{new_model_name}/{fold_idx}model_{epoch}_{writer_name}.csv')
 
-        # 만약 optimizer 바꿀거면 바꿔주세요
-        opt_name = 'Adam'  # opt_name으로 tensorboard writer 이름 들어감
-        opt = optim.Adam(model.parameters(), lr=args.lr)
-        scheduler = optim.lr_scheduler.LambdaLR(optimizer=opt,
-                                                lr_lambda=lambda epoch: 0.995 ** epoch,
-                                                last_epoch=-1,
-                                                verbose=False)
-
-        num_epochs = args.epochs
-        min_loss = 1e9
-        min_acc = 1e9
-        writer_name = f"V2_{args.loss}_{args.lr}{args.alpha}_normalsampling_BS{args.train_batch_size}_{opt_name}"
-
-        if args.mode == 'inferece':
-            writer_name = 'FULL_' + writer_name
-
-        if args.tf_mode == 'yes':
-            new_model_name = 'tf_' + args.model
-        else:
-            new_model_name = args.model
-
-        # writer = SummaryWriter(f"tb_report/conf_tests/{args.mode}/{new_model_name}/{writer_name}")
-        writer = SummaryWriter(f"tb_report/conf_tests/{args.mode}/{new_model_name}/{fold_idx}_{writer_name}")
-        ###### submission file 및 ckpt 저장 Directory 생성 ######
-        # os.makedirs(f'./ckpt_split/{args.mode}/{new_model_name}/')
-        # os.makedirs(f'./results_split/{args.mode}/{new_model_name}/')
-        mkdirs(f'./ckpt_split/{args.mode}/{new_model_name}/')
-        mkdirs(f'./results_split/{args.mode}/{new_model_name}/')
-        # early stopping, patience=5 의 의미: 최저 val_loss 기준으로 5epoch까지만 봐줌
-        early_stopping = EarlyStopping(patience=args.patience,
-                                       base_dir='./results_split/',
-                                       file_name=f'{args.mode}_{new_model_name}_{writer_name}')
-
-        train_loader = DataLoader(train_dataset, batch_size=args.train_batch_size, shuffle=True, num_workers=4,
-                                  drop_last=True)
-
-        val_loader = DataLoader(val_dataset, batch_size=args.train_batch_size, shuffle=True, num_workers=4,
-                                drop_last=True)
-
-        for epoch in tqdm(range(num_epochs)):
-            """
-            K-fold : 각 K에 맞는 train_dataset에 따라 train_loader, val_loader만들어짐
-            args.mode가 inference :학습 후 test 함수로 eval 데이터셋에 대해 inference 실행
-            args.mode 가 train : 학습 후 eval 함수로 전체 데이터셋에서 쪼갠 validation loader 데이터에 대해 validation 수행
-            """
-            train_loss, train_acc = train(model, criterion,
-                                          opt, epoch,
-                                          train_loader,
-                                          device)
-            if args.mode != 'inference':
-                val_loss, val_acc, val_f1, early_stop_signal, fig1, fig2 = eval(model, criterion,
-                                                                                epoch, early_stopping,
-                                                                                val_loader)
-
-                writer.add_scalar('Train/loss', train_loss, epoch)
-                writer.add_scalar('Train/acc', train_acc, epoch)
-                # writer.add_scalar('Train/f1', train_acc, epoch)
-
-                writer.add_scalar('Val/loss', val_loss, epoch)
-                writer.add_scalar('Val/acc', val_acc, epoch)
-                writer.add_scalar('Val/f1', val_f1, epoch)
-                writer.add_figure('Val/conf_based_on_sample_nums', fig1, epoch)
-                writer.add_figure('Val/conf_based_on_ratio', fig2, epoch)
-            else:
-                """
-                Not used here
-                writer.add_scalar('Train/loss', train_loss, epoch)
-                writer.add_scalar('Train/acc', train_acc, epoch)
-    
-                torch.save({'model': model.state_dict(),
-                            'loss': train_loss,
-                            'optimizer': opt.state_dict()},
-                           f'./ckpt_split/{args.mode}/{new_model_name}/{epoch}_{writer_name}.pt')
-                if epoch > 3:
-                    test(model, test_loader,
-                         file_name=f'./results_split/{args.mode}/{new_model_name}/{epoch}_{writer_name}.csv')
-                """
-                pass
-            print(f'{fold_idx} model at {epoch}: Training finished learning rate at {opt.param_groups[0]["lr"]}')
-            # scheduler step
-            scheduler.step()
-            # early stop 돼면 마지막꺼를 저장
-            if epoch>4:
-                print(f'{fold_idx} requires early stopped! finishing training at {epoch}')
-                torch.save({'model': model.state_dict(),
-                            'loss': train_loss,
-                            'optimizer': opt.state_dict()},
-                           f'./ckpt_split/{args.mode}/{new_model_name}/{fold_idx}model_{epoch}_{writer_name}.pt')
-            if early_stop_signal:
-                print(f'{fold_idx} requires early stopped! finishing training at {epoch}')
-                torch.save({'model': model.state_dict(),
-                            'loss': train_loss,
-                            'optimizer': opt.state_dict()},
-                           f'./ckpt_split/{args.mode}/{new_model_name}/{fold_idx}model_{epoch}_{writer_name}.pt')
-                fold_pred = test(model, test_loader,args,
-                     file_name=f'./results_split/{args.mode}/{new_model_name}/{fold_idx}model_{epoch}_{writer_name}.csv')
-                break
         if oof_pred is None:
             oof_pred = fold_pred / args.k_split
         else:
@@ -593,5 +500,5 @@ if __name__ == "__main__":
     submission['ans'] = np.argmax(oof_pred, axis=1)
     save_path = f'./submission/{args.mode}/{new_model_name}/'
     mkdirs(save_path)
-    submission.to_csv(os.path.join(save_path, f'{args.k_split}_{args.model}_submission.csv'), index=False)
+    submission.to_csv(os.path.join(save_path, f'{args.k_split}_{args.model}_submission2.csv'), index=False)
 
