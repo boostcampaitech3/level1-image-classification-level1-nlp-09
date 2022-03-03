@@ -238,7 +238,7 @@ def test(model,
             if args.TTA=='use':
                 # 원본 이미지를 예측
                 pred = model(img) / 2
-                pred += model(torch.flip(images, dims=(-1,))) / 2 # horizontal?
+                pred += model(torch.flip(img, dims=(-1,))) / 2 # horizontal?
             else:
                 _, pred = torch.max(output, 1)
 
@@ -274,6 +274,7 @@ if __name__ == "__main__":
 
     parser.add_argument('--TTA', type=str, default='use', help='choose wheter to use TTA')
     parser.add_argument('--k_split', type=int, default=5, help='choose wheter to use TTA')
+    parser.add_argument('--patience', type=int, default=8, help='choose wheter to use TTA')
 
     args = parser.parse_args()
     print(args)
@@ -516,7 +517,7 @@ if __name__ == "__main__":
         mkdirs(f'./ckpt_split/{args.mode}/{new_model_name}/')
         mkdirs(f'./results_split/{args.mode}/{new_model_name}/')
         # early stopping, patience=5 의 의미: 최저 val_loss 기준으로 5epoch까지만 봐줌
-        early_stopping = EarlyStopping(patience=5,
+        early_stopping = EarlyStopping(patience=args.patience,
                                        base_dir='./results_split/',
                                        file_name=f'{args.mode}_{new_model_name}_{writer_name}')
 
@@ -574,9 +575,9 @@ if __name__ == "__main__":
                 torch.save({'model': model.state_dict(),
                             'loss': train_loss,
                             'optimizer': opt.state_dict()},
-                           f'./ckpt_split/{args.mode}/{new_model_name}/{epoch}_{writer_name}.pt')
+                           f'./ckpt_split/{args.mode}/{new_model_name}/{fold_idx}model_{epoch}_{writer_name}.pt')
                 fold_pred = test(model, test_loader,args,
-                     file_name=f'./results_split/{args.mode}/{new_model_name}/{epoch}_{writer_name}.csv')
+                     file_name=f'./results_split/{args.mode}/{new_model_name}/{fold_idx}model_{epoch}_{writer_name}.csv')
                 break
         if oof_pred is None:
             oof_pred = fold_pred / args.k_split

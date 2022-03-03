@@ -506,7 +506,7 @@ if __name__ == "__main__":
     mkdirs(f'./results_split/{args.mode}/{new_model_name}/')
 
     # early stopping, patience=5 의 의미: 최저 val_loss 기준으로 5epoch까지만 봐줌
-    early_stopping = EarlyStopping(patience=5,
+    early_stopping = EarlyStopping(patience=8,
                                    base_dir='./results_split/',
                                    file_name=f'{args.mode}_{new_model_name}_{writer_name}')
 
