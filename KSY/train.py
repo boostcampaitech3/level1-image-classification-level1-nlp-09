@@ -19,8 +19,8 @@ import timm
 import torchvision.models as models
 from model import ModifiedResnet18
 from model import ModifiedEfficient
-
 from dataset import preprocess_df, MaskDataset, TestDataset, CustomMaskSplitByProfileDataset
+
 
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import f1_score, confusion_matrix, classification_report
@@ -228,6 +228,7 @@ def test(model,
 
     model.eval()
     all_predictions = []
+
     with torch.no_grad():
         for img in tqdm(test_dataloader):
             img = img.to(device)
@@ -438,7 +439,10 @@ if __name__ == "__main__":
     elif args.loss == 'focal':
         # https://github.com/kaidic/LDAM-DRW/blob/master/cifar_train.py
         beta = 0.9999
-        train_sample = np.unique(train_dataset.indices, return_counts=True)[1]
+        if args.mode == 'inference':
+            train_sample = np.unique(train_dataset.df['targets'], return_counts=True)[1]
+        else:
+            train_sample = np.unique(train_dataset.indices, return_counts=True)[1]
         effective_num = 1.0 - np.power(beta, train_sample)
         per_cls_weights = (1.0 - beta) / np.array(effective_num)
         per_cls_weights = per_cls_weights / np.sum(per_cls_weights) * len(train_sample)
@@ -449,7 +453,10 @@ if __name__ == "__main__":
         from loss import LDAMLoss
 
         beta = 0.9999
-        train_sample = np.unique(train_dataset.indices, return_counts=True)[1]
+        if args.mode == 'inference':
+            train_sample = np.unique(train_dataset.df['targets'], return_counts=True)[1]
+        else:
+            train_sample = np.unique(train_dataset.indices,return_counts=True)[1]
         effective_num = 1.0 - np.power(beta, train_sample)
         per_cls_weights = (1.0 - beta) / np.array(effective_num)
         per_cls_weights = per_cls_weights / np.sum(per_cls_weights) * len(train_sample)
@@ -495,8 +502,8 @@ if __name__ == "__main__":
     writer = SummaryWriter(f"tb_report/conf_tests/{args.mode}/{new_model_name}/{writer_name}")
 
     ###### submission file 및 ckpt 저장 Directory 생성 ######
-    os.makedirs(f'./ckpt_split/{args.mode}/{new_model_name}/')
-    os.makedirs(f'./results_split/{args.mode}/{new_model_name}/')
+    mkdirs(f'./ckpt_split/{args.mode}/{new_model_name}/')
+    mkdirs(f'./results_split/{args.mode}/{new_model_name}/')
 
     # early stopping, patience=5 의 의미: 최저 val_loss 기준으로 5epoch까지만 봐줌
     early_stopping = EarlyStopping(patience=5,
@@ -540,12 +547,13 @@ if __name__ == "__main__":
                         'optimizer': opt.state_dict()},
                        f'./ckpt_split/{args.mode}/{new_model_name}/{epoch}_{writer_name}.pt')
             if epoch > 3:
+                early_stop_signal = False
                 test(model, test_loader,
                      file_name=f'./results_split/{args.mode}/{new_model_name}/{epoch}_{writer_name}.csv')
         print(f'Training finished learning rate at {opt.param_groups[0]["lr"]}')
 
         # early stop 돼면 마지막꺼를 저장
-        if early_stop_signal:
+        if args.mode =='train' and early_stop_signal:
             print(f'Therefore finishing training at {epoch}')
             torch.save({'model': model.state_dict(),
                         'loss': train_loss,
