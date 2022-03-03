@@ -20,9 +20,7 @@ import torchvision.models as models
 from model import ModifiedResnet18
 from model import ModifiedEfficient
 
-from dataset import preprocess_df, preprocess_df_eval, MaskDataset, TestDataset
-from dataset_split import CustomMaskSplitByProfileDataset
-# from utils import AverageMeter, ProgressMeter
+from dataset import preprocess_df, MaskDataset, TestDataset, CustomMaskSplitByProfileDataset
 
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import f1_score, confusion_matrix, classification_report
@@ -270,7 +268,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     print(args)
-    print(f'지금 돌리는 모드는 {args.mode} 입니다! 모델은 {args.model}이고 인풋 사이즈는 {args.img_resize}로 줄이고, {args.im_crop}만큼 짜릅니당')
+    print(f'지금 돌리는 모드는 {args.mode} 입니다! 모델은 {args.model}이고 인풋 사이즈는 {args.img_resize}로 줄이고, {args.img_crop}만큼 짜릅니당')
 
 
     ###### Datset ######
