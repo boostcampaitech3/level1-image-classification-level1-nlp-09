@@ -31,6 +31,8 @@
 | 17    | Not wear  | Female | >=60        |
 
 * Class distribution : Please refer to EDA jupyter notebook.
+* Several noisy labels.
+  
 * **Main challenges** : Comparably small dataset and the imbalanced properties' distributions, specially in the case of ages, lead to overall imbalance across final classes.
 ### Metric
 * F1 score
@@ -110,7 +112,7 @@ pip install -r requirements.txt
 
 # About us
 
-|   | ![soyeon]( ./imgs/soyeon.png)                                         | ![junseok]( ./imgs/junseok.png) | ![dongjin]( ./imgs/dongjin.png)                        | ![seongjin]( ./imgs/seongjin.png) | ![soyeon]( ./imgs/seongwon.png) |
+|   | ![Soyeon]( ./KSY/imgs/soyeon.png)                                         | ![Junseok]( ./KSY/imgs/junseok.png) | ![Dongjin]( ./KSY/imgs/dongjin.png)                        | ![Seongjin]( ./KSY/imgs/seongjin.png) | ![Seongwon]( ./KSY/imgs/seongwon.png) |
 |---|-----------------------------------------------------------------------|---------------------------------|--------------------------------------------------------|-----------------------------------|---------------------------------|
 | Roles  | * data preprocessing <br /> * modeling(model, loss, ensemble)<br />* tuning | * data preprocessing <br /> * tuning | * data preprocessing <br /> * modeling <br /> * wandb managing | * modeling <br /> * tuning             | * tuning                         |
 
