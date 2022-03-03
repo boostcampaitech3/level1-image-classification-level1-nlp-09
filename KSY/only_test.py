@@ -20,7 +20,8 @@ import torchvision.models as models
 from model import ModifiedResnet18
 from model import ModifiedEfficient
 
-from dataset import preprocess_df, MaskDataset, TestDataset, CustomMaskSplitByProfileDataset
+# from dataset import preprocess_df, MaskDataset, TestDataset, CustomMaskSplitByProfileDataset
+from dataset_fold import preprocess_df, MaskDataset, TestDataset, CustomMaskSplitByProfileDatasetFold
 
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import f1_score, confusion_matrix, classification_report
@@ -218,15 +219,13 @@ def eval(model, criterion, epoch, early_stopping,
 
 
 def test(model,
-         test_dataloader,
+         test_dataloader, args,
          file_name,
          device='cuda',
          ):
     """
     submission용 inference 수행 함수
     """
-    base_dir = '/opt/ml/input/data'
-    submission = pd.read_csv(os.path.join(base_dir, 'eval', 'info.csv'))
 
     model.eval()
     all_predictions = []
@@ -235,11 +234,16 @@ def test(model,
             img = img.to(device)
 
             output = model(img)
-            _, pred = torch.max(output, 1)
-            all_predictions.extend(pred.cpu().numpy())
+            if args.TTA == 'use':
+                # 원본 이미지를 예측
+                pred = model(img) / 2
+                pred += model(torch.flip(img, dims=(-1,))) / 2  # horizontal?
+            else:
+                _, pred = torch.max(output, 1)
 
-    submission['ans'] = all_predictions
-    submission.to_csv(f'{file_name}', index=False)
+            all_predictions.extend(pred.cpu().numpy())
+        fold_pred = np.array(all_predictions)
+    return fold_pred
 
 
 if __name__ == "__main__":
@@ -251,21 +255,25 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     # args.train_batch_size,
-    parser.add_argument('--mode', type=str, default='inference', help='training/ inference')
+    parser.add_argument('--mode', type=str, default='train', help='training/ inference')
     parser.add_argument('--tf_mode', type=str, default='no', help='efficientnet test- use tf version')
 
-    parser.add_argument('--epochs', type=int, default=8, help='num of epochs')
-    parser.add_argument('--model', type=str, default='modified_efficientnet-b4 ', help='model name')
+    parser.add_argument('--epochs', type=int, default=15, help='num of epochs')
+    parser.add_argument('--model', type=str, default='modified_efficientnet-b3 ', help='model name')
 
-    parser.add_argument('--img_resize', type=int, default=412, help='image resizing')
-    parser.add_argument('--img_crop', type=int, default=380, help='image cropping')
+    parser.add_argument('--img_resize', type=int, default=332, help='image resizing')
+    parser.add_argument('--img_crop', type=int, default=300, help='image cropping')
 
     parser.add_argument('--lr', type=float, default=1e-4, help='learning rate')
-    parser.add_argument('--train_batch_size', type=int, default=32,
+    parser.add_argument('--train_batch_size', type=int, default=64,
                         help='batch size, if using b4-> using batch size 32')
 
     parser.add_argument('--loss', type=str, default='cross_entropy', help='type of loss')
     parser.add_argument('--alpha', type=float, default=0.1, help='smoothing for label smoothing')
+
+    parser.add_argument('--TTA', type=str, default='use', help='choose wheter to use TTA')
+    parser.add_argument('--k_split', type=int, default=5, help='choose wheter to use TTA')
+    parser.add_argument('--patience', type=int, default=8, help='choose wheter to use TTA')
 
     args = parser.parse_args()
     print(args)
@@ -293,9 +301,8 @@ if __name__ == "__main__":
     """
     if args.mode == 'inference':
         """
-        inference 일 경우 전체 데이터셋에 대해 학습시키고, 'eval' 폴더에 있는 이미지로 inference 시킬 수 있도록
-        trainloader와 eval loader 생성
-        """
+        Not used
+
         base_dir = '/opt/ml/input/data/'
         test_image_dir = os.path.join(base_dir, 'eval', 'images')
         total_df, new_train_df_info = preprocess_df(base_dir)
@@ -309,7 +316,8 @@ if __name__ == "__main__":
         image_paths = [os.path.join(test_image_dir, img_id) for img_id in submission.ImageID]
         test_dataset = TestDataset(image_paths, transform=val_transform)
         test_loader = DataLoader(test_dataset, shuffle=False, batch_size=32, num_workers=4)
-
+        """
+        pass
     else:
         """
         Validation을 위해 val_ratio 만큼 전체 데이터를 train:val=(1-val_ratio):val_ratio 로 잘라서 학습할 수 있도록
@@ -317,113 +325,28 @@ if __name__ == "__main__":
         전체 이미지 기준으로 split할 경우 cheating 가능성 존재 -> 폴더기준으로 split하는 Dataset을 기본으로 삼음.
         단, 주어진 베이스라인 코드 경우 train, val transform이 동일하게 적용되기 때문에 dataset.py에서 Subset 클래스로 각각 transform 설정될 수 있게 수정함
         """
-        total_dataset = CustomMaskSplitByProfileDataset(base_dir, val_ratio=0.2)
-        total_dataset.set_transform(train_transform, val_transform)
-        train_dataset, val_dataset = total_dataset.split_dataset()
-
-        # train_dataset = MaskDataset(base_dir, total_df, transform = train_transform)
-        train_loader = DataLoader(train_dataset, batch_size=args.train_batch_size, shuffle=True, num_workers=4,
-                                  drop_last=True)
-
-        # val_dataset = MaskDataset(base_dir, val_df, transform=val_transform)
-        val_loader = DataLoader(val_dataset, batch_size=args.train_batch_size, shuffle=True, num_workers=4,
-                                drop_last=True)
-
-    ###### Model ######
-
-    # model_name ='modified_efficientnet-b3'
-    model_name = args.model
-
-    if model_name == 'regnetz_e8':
-        model = timm.create_model('regnetz_e8', pretrained=True)
-        num_classes = 18
-        num_ftrs = 2048
-        model.fc = nn.Linear(num_ftrs, num_classes)
-
-    elif model_name == 'resnet18':
-        model = models.resnet18(pretrained=True)
-        num_classes = 18
-        num_ftrs = 512
-        model.fc = nn.Linear(num_ftrs, num_classes)
-        model.to(device)
-
-    elif model_name == 'resnext50':
-
-        model = models.resnext50_32x4d(pretrained=True)
-        num_classes = 18
-        num_ftrs = 2048
-        model.fc = nn.Linear(num_ftrs, num_classes)
-        model.to(device)
-    elif model_name == 'regnet_y_800mf':
-        breakpoint()
-        model = models.regnet_y_800mf(pretrained=True)
-        model.to(device)
-    elif model_name == 'modifed_resent18':
-        model = ModifiedResnet18()
-        model.to(device)
-
-    elif model_name == 'efficientnet-b0':
-        if args.tf_mode == 'yes':
-            model = timm.create_model('tf_efficientnet_b0', pretrained=True)
-        else:
-            model = timm.create_model('efficientnet_b0', pretrained=True)
-        num_classes = 18
-        num_ftrs = model.classifier.in_features
-        model.classifier = nn.Linear(num_ftrs, num_classes)
-        model.to(device)
-
-    elif model_name == 'efficientnet-b1':
-        if args.tf_mode == 'yes':
-            model = timm.create_model('tf_efficientnet_b1', pretrained=True)
-        else:
-            model = timm.create_model('efficientnet_b1', pretrained=True)
-        num_classes = 18
-        num_ftrs = model.classifier.in_features
-        model.classifier = nn.Linear(num_ftrs, num_classes)
-        model.to(device)
-
-    elif model_name == 'efficientnet-b2':
-
-        if args.tf_mode == 'yes':
-            model = timm.create_model('tf_efficientnet_b2', pretrained=True)
-        else:
-            model = timm.create_model('efficientnet_b2', pretrained=True)
-        num_classes = 18
-        num_ftrs = model.classifier.in_features
-        model.classifier = nn.Linear(num_ftrs, num_classes)
-        model.to(device)
-
-    elif model_name == 'efficientnet-b3':
-
-        if args.tf_mode == 'yes':
-            model = timm.create_model('tf_efficientnet_b3', pretrained=True)
-        else:
-            model = timm.create_model('efficientnet_b3', pretrained=True)
-        num_classes = 18
-        num_ftrs = model.classifier.in_features
-        model.classifier = nn.Linear(num_ftrs, num_classes)
-        model.to(device)
-
-    elif model_name == 'efficientnet-b4':
-        if args.tf_mode == 'yes':
-            model = timm.create_model('tf_efficientnet_b4', pretrained=True)
-        else:
-            model = timm.create_model('efficientnet_b4', pretrained=True)
-        num_classes = 18
-        num_ftrs = model.classifier.in_features
-        model.classifier = nn.Linear(num_ftrs, num_classes)
-        model.to(device)
-
-    elif 'modified_efficientnet' in model_name:
         """
-        버전에 따라서 ModifiedEfficient 클래스에서 버전에 맞게 return
+        Fold는 train mode로 다 수행
         """
-        model = ModifiedEfficient(args)
-        model.to(device)
+        total_dataset_fold = CustomMaskSplitByProfileDatasetFold(base_dir, val_ratio=0.2,
+                                                                 k_split=args.k_split)
+        total_dataset_fold.set_transform(train_transform, val_transform)
+        train_dataset_fold, val_dataset_fold = total_dataset_fold.split_dataset()
 
-    else:
-        print('설정한 모델이 없는디용?')
-        raise NotImplementedError
+        # # train_dataset = MaskDataset(base_dir, total_df, transform = train_transform)
+        # train_loader = DataLoader(train_dataset, batch_size=args.train_batch_size, shuffle=True, num_workers=4,
+        #                           drop_last=True)
+        #
+        # # val_dataset = MaskDataset(base_dir, val_df, transform=val_transform)
+        # val_loader = DataLoader(val_dataset, batch_size=args.train_batch_size, shuffle=True, num_workers=4,
+        #                         drop_last=True)
+
+        base_dir = '/opt/ml/input/data/'
+        test_image_dir = os.path.join(base_dir, 'eval', 'images')
+        submission = pd.read_csv(os.path.join(base_dir, 'eval', 'info.csv'))
+        image_paths = [os.path.join(test_image_dir, img_id) for img_id in submission.ImageID]
+        test_dataset = TestDataset(image_paths, transform=val_transform)
+        test_loader = DataLoader(test_dataset, shuffle=False, batch_size=32, num_workers=4)
 
     ###### loss, opt ######
     if args.loss == 'cross_entropy':
@@ -436,10 +359,7 @@ if __name__ == "__main__":
     elif args.loss == 'focal':
         # https://github.com/kaidic/LDAM-DRW/blob/master/cifar_train.py
         beta = 0.9999
-        if args.mode == 'inference':
-            train_sample = np.unique(train_dataset.df['targets'], return_counts=True)[1]
-        else:
-            train_sample = np.unique(train_dataset.indices, return_counts=True)[1]
+        train_sample = np.unique(train_dataset.indices, return_counts=True)[1]
         effective_num = 1.0 - np.power(beta, train_sample)
         per_cls_weights = (1.0 - beta) / np.array(effective_num)
         per_cls_weights = per_cls_weights / np.sum(per_cls_weights) * len(train_sample)
@@ -450,10 +370,7 @@ if __name__ == "__main__":
         from loss import LDAMLoss
 
         beta = 0.9999
-        if args.mode == 'inference':
-            train_sample = np.unique(train_dataset.df['targets'], return_counts=True)[1]
-        else:
-            train_sample = np.unique(train_dataset.indices, return_counts=True)[1]
+        train_sample = np.unique(train_dataset.indices, return_counts=True)[1]
         effective_num = 1.0 - np.power(beta, train_sample)
         per_cls_weights = (1.0 - beta) / np.array(effective_num)
         per_cls_weights = per_cls_weights / np.sum(per_cls_weights) * len(train_sample)
@@ -471,90 +388,117 @@ if __name__ == "__main__":
         criterion = nn.CrossEntropyLoss(weight=normedW)
 
     """
-    @성원, 성진: optimizer, lr(args 통해서) 수정
-
+    K-fold done
     """
+    oof_pred = None
+    model_list = list(range(4))
+    model_path_list = os.listdir('/opt/ml/level1-image-classification-level1-nlp-09/KSY/ckpt_split/train/model')
+    for _ in range(len(model_list)):
+        model_name = args.model
 
-    # 만약 optimizer 바꿀거면 바꿔주세요
-    opt_name = 'Adam'  # opt_name으로 tensorboard writer 이름 들어감
-    opt = optim.Adam(model.parameters(), lr=args.lr)
-    scheduler = optim.lr_scheduler.LambdaLR(optimizer=opt,
-                                            lr_lambda=lambda epoch: 0.995 ** epoch,
-                                            last_epoch=-1,
-                                            verbose=False)
+        if model_name == 'regnetz_e8':
+            model = timm.create_model('regnetz_e8', pretrained=True)
+            num_classes = 18
+            num_ftrs = 2048
+            model.fc = nn.Linear(num_ftrs, num_classes)
 
-    num_epochs = args.epochs
-    min_loss = 1e9
-    min_acc = 1e9
-    writer_name = f"{args.loss}_{args.lr}{args.alpha}_normalsampling_BS{args.train_batch_size}_{opt_name}"
+        elif model_name == 'resnet18':
+            model = models.resnet18(pretrained=True)
+            num_classes = 18
+            num_ftrs = 512
+            model.fc = nn.Linear(num_ftrs, num_classes)
+            model.to(device)
 
-    if args.mode == 'inferece':
-        writer_name = 'FULL_' + writer_name
+        elif model_name == 'resnext50':
 
-    if args.tf_mode == 'yes':
-        new_model_name = 'tf_' + args.model
-    else:
-        new_model_name = args.model
+            model = models.resnext50_32x4d(pretrained=True)
+            num_classes = 18
+            num_ftrs = 2048
+            model.fc = nn.Linear(num_ftrs, num_classes)
+            model.to(device)
+        elif model_name == 'regnet_y_800mf':
+            breakpoint()
+            model = models.regnet_y_800mf(pretrained=True)
+            model.to(device)
+        elif model_name == 'modifed_resent18':
+            model = ModifiedResnet18()
+            model.to(device)
 
-    writer = SummaryWriter(f"tb_report/conf_tests/{args.mode}/{new_model_name}/{writer_name}")
+        elif model_name == 'efficientnet-b0':
+            if args.tf_mode == 'yes':
+                model = timm.create_model('tf_efficientnet_b0', pretrained=True)
+            else:
+                model = timm.create_model('efficientnet_b0', pretrained=True)
+            num_classes = 18
+            num_ftrs = model.classifier.in_features
+            model.classifier = nn.Linear(num_ftrs, num_classes)
+            model.to(device)
 
-    ###### submission file 및 ckpt 저장 Directory 생성 ######
-    mkdirs(f'./ckpt_split/{args.mode}/{new_model_name}/')
-    mkdirs(f'./results_split/{args.mode}/{new_model_name}/')
+        elif model_name == 'efficientnet-b1':
+            if args.tf_mode == 'yes':
+                model = timm.create_model('tf_efficientnet_b1', pretrained=True)
+            else:
+                model = timm.create_model('efficientnet_b1', pretrained=True)
+            num_classes = 18
+            num_ftrs = model.classifier.in_features
+            model.classifier = nn.Linear(num_ftrs, num_classes)
+            model.to(device)
 
-    # early stopping, patience=5 의 의미: 최저 val_loss 기준으로 5epoch까지만 봐줌
-    early_stopping = EarlyStopping(patience=5,
-                                   base_dir='./results_split/',
-                                   file_name=f'{args.mode}_{new_model_name}_{writer_name}')
+        elif model_name == 'efficientnet-b2':
 
-    """
-    @동진: Kfold.. dataset.py의 CustomMaskSplitProfileDataset에서 폴더 기준으로 나누는걸
-    K번 수행해서 train_loader/valid_loader를 여러개 생성해두는게 방식일수도..
-    """
-    for epoch in tqdm(range(num_epochs)):
-        """
-        train_dataloader는 이미 위에서 inference/train 모드에 따라 만들어졌고, 
-        args.mode가 inference :학습 후 test 함수로 eval 데이터셋에 대해 inference 실행
-        args.mode 가 train : 학습 후 eval 함수로 전체 데이터셋에서 쪼갠 validation loader 데이터에 대해 validation 수행
-        """
-        train_loss, train_acc = train(model, criterion,
-                                      opt, epoch,
-                                      train_loader,
-                                      device)
-        if args.mode != 'inference':
-            val_loss, val_acc, val_f1, early_stop_signal, fig1, fig2 = eval(model, criterion,
-                                                                            epoch, early_stopping,
-                                                                            val_loader)
+            if args.tf_mode == 'yes':
+                model = timm.create_model('tf_efficientnet_b2', pretrained=True)
+            else:
+                model = timm.create_model('efficientnet_b2', pretrained=True)
+            num_classes = 18
+            num_ftrs = model.classifier.in_features
+            model.classifier = nn.Linear(num_ftrs, num_classes)
+            model.to(device)
 
-            writer.add_scalar('Train/loss', train_loss, epoch)
-            writer.add_scalar('Train/acc', train_acc, epoch)
-            # writer.add_scalar('Train/f1', train_acc, epoch)
+        elif model_name == 'efficientnet-b3':
 
-            writer.add_scalar('Val/loss', val_loss, epoch)
-            writer.add_scalar('Val/acc', val_acc, epoch)
-            writer.add_scalar('Val/f1', val_f1, epoch)
-            writer.add_figure('Val/conf_based_on_sample_nums', fig1, epoch)
-            writer.add_figure('Val/conf_based_on_ratio', fig2, epoch)
+            if args.tf_mode == 'yes':
+                model = timm.create_model('tf_efficientnet_b3', pretrained=True)
+            else:
+                model = timm.create_model('efficientnet_b3', pretrained=True)
+            num_classes = 18
+            num_ftrs = model.classifier.in_features
+            model.classifier = nn.Linear(num_ftrs, num_classes)
+            model.to(device)
+
+        elif model_name == 'efficientnet-b4':
+            if args.tf_mode == 'yes':
+                model = timm.create_model('tf_efficientnet_b4', pretrained=True)
+            else:
+                model = timm.create_model('efficientnet_b4', pretrained=True)
+            num_classes = 18
+            num_ftrs = model.classifier.in_features
+            model.classifier = nn.Linear(num_ftrs, num_classes)
+            model.to(device)
+
+        elif 'modified_efficientnet' in model_name:
+            """
+            버전에 따라서 ModifiedEfficient 클래스에서 버전에 맞게 return
+            """
+            model = ModifiedEfficient(args)
+            model.to(device)
+
         else:
-            writer.add_scalar('Train/loss', train_loss, epoch)
-            writer.add_scalar('Train/acc', train_acc, epoch)
+            print('설정한 모델이 없는디용?')
+            raise NotImplementedError
+        for model_path in range(model_path_list):
+            ckpt_model = torch.load(model_path)
+            model.state_dict(ckpt_model['model'])
+            fold_pred = test(model, test_loader, args,
+                                     file_name=f'./results_split/{args.mode}/{new_model_name}/{fold_idx}model_{epoch}_{writer_name}.csv')
 
-            torch.save({'model': model.state_dict(),
-                        'loss': train_loss,
-                        'optimizer': opt.state_dict()},
-                       f'./ckpt_split/{args.mode}/{new_model_name}/{epoch}_{writer_name}.pt')
-            if epoch > 3:
-                test(model, test_loader,
-                     file_name=f'./results_split/{args.mode}/{new_model_name}/{epoch}_{writer_name}.csv')
-        print(f'Training finished learning rate at {opt.param_groups[0]["lr"]}')
+        if oof_pred is None:
+            oof_pred = fold_pred / args.k_split
+        else:
+            oof_pred += fold_pred / args.k_split
 
-        # early stop 돼면 마지막꺼를 저장
-        if early_stop_signal:
-            print(f'Therefore finishing training at {epoch}')
-            torch.save({'model': model.state_dict(),
-                        'loss': train_loss,
-                        'optimizer': opt.state_dict()},
-                       f'./ckpt_split/{args.mode}/{new_model_name}/{epoch}_{writer_name}.pt')
+    submission['ans'] = np.argmax(oof_pred, axis=1)
+    save_path = f'./submission/{args.mode}/{new_model_name}/'
+    mkdirs(save_path)
+    submission.to_csv(os.path.join(save_path, f'{args.k_split}_{args.model}_submission2.csv'), index=False)
 
-        # scheduler step
-        scheduler.step()
