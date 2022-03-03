@@ -31,6 +31,8 @@
 | 17    | Not wear  | Female | >=60        |
 
 * Class distribution : Please refer to EDA jupyter notebook.
+* Several noisy labels.
+  
 * **Main challenges** : Comparably small dataset and the imbalanced properties' distributions, specially in the case of ages, lead to overall imbalance across final classes.
 ### Metric
 * F1 score
