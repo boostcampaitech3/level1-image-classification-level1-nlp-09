@@ -15,6 +15,27 @@ from collections import defaultdict
 from typing import Tuple, List
 import random
 
+
+def seed_setting(random_seed):
+    '''
+    setting random seed for further reproduction
+    :param random_seed:
+    :return:
+    '''
+    os.environ['PYTHONHASHSEED'] = str(random_seed)
+
+    # pytorch, numpy random seed 고정
+    torch.manual_seed(random_seed)
+    np.random.seed(random_seed)
+
+    # CuDNN 고정
+    # torch.backends.cudnn.deterministic = True # 고정하면 학습이 느려진다고 합니다.
+    torch.backends.cudnn.benchmark = False
+    # GPU 난수 생성
+    torch.cuda.manual_seed(random_seed)
+    # transforms에서 사용하는 random 라이브러리 고정
+    random.seed(random_seed)
+
 class MaskDataset(Dataset):
     def __init__(self, base_dir, df, transform=None):
         self.base_dir = base_dir
@@ -118,7 +139,7 @@ class Subset(object):
         return Image.open(image_path)
 
 
-class CustomMaskSplitByProfileDataset(Dataset):
+class CustomMaskSplitByProfileDatasetFold(Dataset):
     _file_names = {
         "mask1": MaskLabels.MASK,
         "mask2": MaskLabels.MASK,
@@ -135,13 +156,13 @@ class CustomMaskSplitByProfileDataset(Dataset):
     # age_labels = {'train':[], 'val':[]}
     multi_class_label = {'train':[], 'val':[]}
 
-    def __init__(self, data_dir, val_ratio=0.2):
-
+    def __init__(self, data_dir, val_ratio=0.2, k_split=5, seed=42):
+        seed_setting(seed)
         self.data_dir = data_dir
-        #         self.setup_basic()
         self.val_ratio = val_ratio
-
-        self.setup()
+        self.k = k_split
+        print(f'[현재] {val_ratio}*{k_split} =1 로만 구현돼있음')
+        self.setup_fold()
 
     def get_mask_label(self, index) -> MaskLabels:
         return self.mask_labels[index]
@@ -186,6 +207,24 @@ class CustomMaskSplitByProfileDataset(Dataset):
             "val": val_indices
         }
 
+    @staticmethod
+    def _split_profile_fold(profiles, val_ratio, k_fold):
+        random.shuffle(profiles)
+        length = len(profiles)
+        n_val = int(length * val_ratio)
+
+        # val_indices = set(random.choices(range(length), k=n_val))
+        val_indices_fold = []
+        train_indices_fold = []
+        for i in range(k_fold):
+            val_indices = set(range(i*n_val,(i+1)*n_val))
+            val_indices_fold.append(val_indices)
+            train_indices_fold.append(set(range(length)) - val_indices)
+
+        return {
+            "train": train_indices_fold,
+            "val": val_indices_fold
+        }
 
     def set_transform(self, train_transform, val_transform):
         self.train_transform = train_transform
@@ -198,8 +237,8 @@ class CustomMaskSplitByProfileDataset(Dataset):
             import random
             random.shuffle(profiles)
         profiles = [profile for profile in profiles if not profile.startswith(".")]
-        split_profiles = self._split_profile(profiles, self.val_ratio)
-
+        split_profiles = self._split_profile(profiles, self.val_ratio, self.k)
+        breakpoint()
 
         for phase, indices in split_profiles.items():
             for _idx in indices:
@@ -225,13 +264,53 @@ class CustomMaskSplitByProfileDataset(Dataset):
 
                     label = self.encode_multi_class(mask_label, gender_label, age_label)
                     self.multi_class_label[phase].append(label)
+    def setup_fold(self, shuffle=False):
+        profiles = os.listdir(self.data_dir)
+        self.image_paths = {'train': [[] for _ in range(self.k)], 'val': [[] for _ in range(self.k)]}
+        self.multi_class_label = {'train': [[] for _ in range(self.k)], 'val': [[] for _ in range(self.k)]}
 
+        if shuffle:
+            import random
+            random.shuffle(profiles)
+        profiles = [profile for profile in profiles if not profile.startswith(".")]
+        split_profiles = self._split_profile_fold(profiles, self.val_ratio, self.k)
+
+        # {'train':[{} _ for in range(self.k)], 'val':[{} _ for in range(self.k)]}
+        for phase, fold_indices in split_profiles.items():
+            for fold_iter, fold_idx in enumerate(fold_indices):
+                for fold_idx, _idx in enumerate(fold_idx):
+
+                    profile = profiles[_idx]
+                    img_folder = os.path.join(self.data_dir, profile)
+
+                    for file_name in os.listdir(img_folder):
+                        _file_name, ext = os.path.splitext(file_name)
+                        if _file_name not in self._file_names:  # "." 로 시작하는 파일 및 invalid 한 파일들은 무시합니다
+                            continue
+
+                        img_path = os.path.join(self.data_dir, profile,
+                                                file_name)  # (resized_data, 000004_male_Asian_54, mask1.jpg)
+                        mask_label = self._file_names[_file_name]
+
+                        id, gender, race, age = profile.split("_")
+                        gender_label = GenderLabels.from_str(gender)
+                        age_label = AgeLabels.from_number(age)
+
+                        self.image_paths[phase][fold_iter].append(img_path)
+                        # self.mask_labels[phase].append(mask_label)
+                        # self.gender_labels[phase].append(gender_label)
+                        # self.age_labels[phase].append(age_label)
+
+                        label = self.encode_multi_class(mask_label, gender_label, age_label)
+                        self.multi_class_label[phase][fold_iter].append(label)
 
     def split_dataset(self) -> List[Subset]:
-
-        train_sub = Subset(self.image_paths['train'], self.multi_class_label['train'], self.train_transform)
-        val_sub = Subset(self.image_paths['val'], self.multi_class_label['val'], self.val_transform)
-        return train_sub, val_sub
+        train_sub_list = []
+        val_sub_list = []
+        for i in range(self.k):
+            train_sub_list.append(Subset(self.image_paths['train'][i], self.multi_class_label['train'][i], self.train_transform))
+            val_sub_list.append(Subset(self.image_paths['val'][i], self.multi_class_label['val'][i], self.val_transform))
+        return train_sub_list, val_sub_list
 
 
 def preprocess_df(base_dir, mode='train'):
@@ -335,39 +414,45 @@ def preprocess_df(base_dir, mode='train'):
 
 
 if __name__=="__main__":
-    base_dir = '/opt/ml/input/data'
-    train_df = preprocess_df(base_dir)
-    # train_transform = transforms.Compose([transforms.Resize((input_size, input_size)),
-    #                                       transforms.RandomHorizontalFlip(),
-    #                                       transforms.RandomVerticalFlip(),
-    #                                       transforms.RandomRotation(20),
-    #                                       transforms.ColorJitter(brightness=0.1, contrast=0.1, hue=0.1),
-    #                                       transforms.ToTensor(),
-    #                                       transforms.Normalize(norm_mean, norm_std)])
-    input_size = 256
+    base_dir = '/opt/ml/input/data/train/images'
+
+    total_dataset = CustomMaskSplitByProfileDatasetFold(base_dir, val_ratio=0.2)
     train_transform = transforms.Compose([transforms.Resize(256), transforms.CenterCrop(224), transforms.ToTensor()])
-    train_dataset = MaskDataset(base_dir, train_df, transform = train_transform)
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=4)
-    device = 'cuda'
-    model_ft = models.resnet18(pretrained=True)
-    num_classes = 18
-    num_ftrs = 512
+    total_dataset.set_transform(train_transform, train_transform)
+    train, vl = total_dataset.split_dataset()
 
-    model_ft.fc = nn.Linear(num_ftrs, num_classes)
-    model_ft.to(device)
-
-    from sklearn.model_selection import train_test_split
-    train, valid = train_test_split(train_df,test_size=0.2,
-                                    shuffle=True, stratify=train_df['targets'])
-
-    train_dataset = MaskDataset(base_dir, train, transform=train_transform)
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=8)
-
-    val_dataset = MaskDataset(base_dir, valid, transform=train_transform)
-    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False, num_workers=8)
-
-    for batch in train_loader:
-        x, y = batch
-        x, y = x.to(device), y.to(device)
-        breakpoint()
+    # train_df = preprocess_df(base_dir)
+    # # train_transform = transforms.Compose([transforms.Resize((input_size, input_size)),
+    # #                                       transforms.RandomHorizontalFlip(),
+    # #                                       transforms.RandomVerticalFlip(),
+    # #                                       transforms.RandomRotation(20),
+    # #                                       transforms.ColorJitter(brightness=0.1, contrast=0.1, hue=0.1),
+    # #                                       transforms.ToTensor(),
+    # #                                       transforms.Normalize(norm_mean, norm_std)])
+    # input_size = 256
+    # train_transform = transforms.Compose([transforms.Resize(256), transforms.CenterCrop(224), transforms.ToTensor()])
+    # train_dataset = MaskDataset(base_dir, train_df, transform = train_transform)
+    # train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=4)
+    # device = 'cuda'
+    # model_ft = models.resnet18(pretrained=True)
+    # num_classes = 18
+    # num_ftrs = 512
+    #
+    # model_ft.fc = nn.Linear(num_ftrs, num_classes)
+    # model_ft.to(device)
+    #
+    # from sklearn.model_selection import train_test_split
+    # train, valid = train_test_split(train_df,test_size=0.2,
+    #                                 shuffle=True, stratify=train_df['targets'])
+    #
+    # train_dataset = MaskDataset(base_dir, train, transform=train_transform)
+    # train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=8)
+    #
+    # val_dataset = MaskDataset(base_dir, valid, transform=train_transform)
+    # val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False, num_workers=8)
+    #
+    # for batch in train_loader:
+    #     x, y = batch
+    #     x, y = x.to(device), y.to(device)
+    #     breakpoint()
 
