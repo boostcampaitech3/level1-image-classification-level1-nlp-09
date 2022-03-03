@@ -97,8 +97,8 @@
 pip install -r requirements.txt
 ```
 ### Scripts Example
-* For a single model :  `sh ./scripts/run_exp.sh`
-* For K-fold with TTA, ensemble : `sh ./scripts/run_kfold.sh`
+* For a single model :  `sh ./KSY/scripts/run_exp.sh`
+* For K-fold with TTA, ensemble : `sh ./KSY/scripts/run_kfold.sh`
 
 ### Hyperparameters (Arguments)
 * Please see **argparse description** in `train.py`, `k_fold.py` 
