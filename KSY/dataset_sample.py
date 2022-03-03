@@ -102,8 +102,12 @@ class Subset(object):
         self.indices = indices
         self.transform = transform
 
+        self.image = []
+        for i in range(len(self.image_path)):
+            self.image.append(self.read_image(i))
+
     def __getitem__(self, idx):
-        image = self.read_image(idx)
+        image = self.image[idx]
         label = self.indices[idx]
 
         if self.transform:
@@ -115,6 +119,9 @@ class Subset(object):
 
     def read_image(self, index):
         image_path = self.image_path[index]
+        """
+        준석이 코드
+        """
         return Image.open(image_path)
 
 
