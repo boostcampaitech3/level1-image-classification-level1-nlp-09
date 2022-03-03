@@ -391,7 +391,7 @@ if __name__ == "__main__":
     """
     K-fold done
     """
-
+    oof_pred = None
     for fold_idx, (train_dataset, val_dataset) in enumerate(zip(train_dataset_fold, val_dataset_fold)):
         ###### Model ######
         # model_name ='modified_efficientnet-b3'
@@ -570,6 +570,13 @@ if __name__ == "__main__":
             # scheduler step
             scheduler.step()
             # early stop 돼면 마지막꺼를 저장
+            if epoch>4:
+                if early_stop_signal:
+                    print(f'{fold_idx} requires early stopped! finishing training at {epoch}')
+                    torch.save({'model': model.state_dict(),
+                                'loss': train_loss,
+                                'optimizer': opt.state_dict()},
+                               f'./ckpt_split/{args.mode}/{new_model_name}/{fold_idx}model_{epoch}_{writer_name}.pt')
             if early_stop_signal:
                 print(f'{fold_idx} requires early stopped! finishing training at {epoch}')
                 torch.save({'model': model.state_dict(),
