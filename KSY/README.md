@@ -104,18 +104,18 @@ pip install -r requirements.txt
 * Please see **argparse description** in `train.py`, `k_fold.py` 
 
 # Takeaway
-### Good
-* 
+
 ### Need to Fix!
 * Avoiding hard-coding when sharing codes. ESPECIALLY directory or path.
 * Should have merged the baseline codes earlier?
 
 # About us
 
-|   | ![soyeon]( ./imgs/soyeon.png)                                         | ![junseok]( ./imgs/junseok.png) | ![dongjin]( ./imgs/dongjin.png)                        | ![seongjin]( ./imgs/seongjin.png) | ![soyeon]( ./imgs/seongwon.png) |
-|---|-----------------------------------------------------------------------|---------------------------------|--------------------------------------------------------|-----------------------------------|---------------------------------|
-| Roles  | * data preprocessing <br /> * modeling(model, loss, ensemble)<br />* tuning | * data preprocessing <br /> * tuning | * data preprocessing <br /> * modeling <br /> * wandb managing | * modeling <br /> * tuning             | * tuning                         |
+김소연|김준석|임동진|하성진|최성원|
+:-:|:-:|:-:|:-:|:-:
+[kimcando](https://github.com/kimcando)|[junseok0408](https://github.com/junseok0408)|[ldj7183](https://github.com/idj7183)|[maxha97](https://github.com/maxha97)|최성원|
+<img src='./imgs/soyeon.png' height=100 width=100px></img>|<img src='./imgs/junseok.png' height=100 width=100px></img>|<img src='./imgs/dongjin.png' height=100 width=100px></img>|<img src='./imgs/seongjin.png' height=100 width=100px></img>|<img src='./imgs/seongwon.png' height=100 width=100px></img>
+
 
 # Acknowledgements & References
 * ImbalancedDatasetSampler
-* 
